@@ -1,415 +1,430 @@
+/*///////////Includes and defines/////////////*/
+    #include <iostream> 
+    #include "mpi.h"
+    #include <string>
+    #include <stdlib.h>
+    #include <algorithm>
+    #include <unordered_map>
+    #include <boost/tokenizer.hpp>
+    #include <set>
+    #include <boost/filesystem.hpp>
+    #include <boost/filesystem/operations.hpp>
+    #include <boost/range/iterator_range.hpp>
+    #include <iostream>
+    #include <fstream>
+    #include <map>
+    #include <ctime>
+    #include <ctype.h>
+    //#include "graph.hpp"
+    //#define CHUNKSIZE 100000
+    #define ROUNDROBINSIZE 300
+    #define STRING_LENGTH 40
+    #define NUM_OF_WORDS 10
+    using namespace std;
+/*///////////Includes and defines/////////////*/
 
-#include <iostream> 
-#include "mpi.h"
-#include <string>
-#include <stdlib.h>
-#include <algorithm>
-#include <unordered_map>
-#include <boost/tokenizer.hpp>
-#include <set>
-#include <boost/filesystem.hpp>
-#include <boost/filesystem/operations.hpp>
-#include <boost/range/iterator_range.hpp>
-#include <iostream>
-#include <fstream>
-#include <map>
-#include <ctime>
-#include <ctype.h>
-//#include "graph.hpp"
-//#define CHUNKSIZE 100000
-#define ROUNDROBINSIZE 300
-#define STRING_LENGTH 40
-using namespace std;
- typedef std::unordered_map<string, std::unordered_map<string, int>> map_stringtostringint;
+/*///////////////Static Declarations/////////////*/
+    typedef std::unordered_map<string, std::unordered_map<string, int>> map_stringtostringint;
 
-unsigned long mapsize(const std::unordered_map<string,std::unordered_map<string,int>> &map){
-    unsigned long mapelements = sizeof(map);
-    unsigned long submapelements =0;
-    for(std::unordered_map<string,std::unordered_map<string,int>>::const_iterator it = map.begin(); it != map.end(); ++it){
-        submapelements += (it->second).size();        
+    unsigned long mapsize(const std::unordered_map<string,std::unordered_map<string,int>> &map){
+        unsigned long mapelements = sizeof(map);
+        unsigned long submapelements =0;
+        for(std::unordered_map<string,std::unordered_map<string,int>>::const_iterator it = map.begin(); it != map.end(); ++it){
+            submapelements += (it->second).size();        
+        }
+        //extra storage per node (parent,left,right, color etc)
+        unsigned long mapsize = (mapelements+submapelements) *20;
+        mapsize+=mapelements*STRING_LENGTH;
+        mapsize+=submapelements*92;
+        mapsize = mapsize/(1024*1024);
+        return mapsize;
     }
-    //extra storage per node (parent,left,right, color etc)
-    unsigned long mapsize = (mapelements+submapelements) *20;
-    mapsize+=mapelements*STRING_LENGTH;
-    mapsize+=submapelements*92;
-    mapsize = mapsize/(1024*1024);
-    return mapsize;
-}
 
-struct cmp_charstr
-{
-   bool operator()(char const *a, char const *b)
-   {
-      return std::strcmp(a, b) < 0;
-   }
-};
-
-
- struct Wordtoword
- {
-    char from[STRING_LENGTH];
-    char to[STRING_LENGTH];
-    int count;
-    // Wordtoword(string from_str, string to_str, int icount){
-    //     strcpy(from,from_str.c_str());
-    //     strcpy(to,to_str.c_str());
-    //     count = icount;
-    // }
-
-    void setvalues(string str1, string str2, int inputcount)
+    struct cmp_charstr
     {
-        //from = new char[str1.length()+1];
-        strcpy(from,str1.c_str());
-        //to = new char[str2.length()+1];
-        strcpy(to,str2.c_str());
-        count=inputcount;
-    }
- /*   ~Wordtoword()
-    {
-        if(from!=nullptr)delete(from);
-        if(to!=nullptr)delete(to);
-    }*/
- };
+       bool operator()(char const *a, char const *b)
+       {
+          return std::strcmp(a, b) < 0;
+       }
+    };
 
- struct WordFrequency
- {
-    char word[STRING_LENGTH];
-    int count;
-    void setvalues(string &str1, int inputcount)
-    {
-        //word = new char[str1.length()+1];
-        strcpy(word,str1.c_str());        
-        count=inputcount;
-    }
-/*    ~WordFrequency()
-    {
-        if(word!=nullptr)delete(word);
-    }*/
- };
 
- /*void get_intersection(char rootwords[][60], int count, std::map<string, std::map<string, int>> &localmap, std::vector<string> &intersection)
- {
-    
-    std::map<string, std::map<string, int>>::iterator it = localmap.begin();
-    for(int i=0;i<count, it!=localmap.end();)
+    struct Wordtoword
     {
-        int cmp=(it->first).compare(rootwords[i]);
-        if(cmp==0)
+        char from[STRING_LENGTH];
+        char to[STRING_LENGTH];
+        int count;
+        // Wordtoword(string from_str, string to_str, int icount){
+        //     strcpy(from,from_str.c_str());
+        //     strcpy(to,to_str.c_str());
+        //     count = icount;
+        // }
+
+        void setvalues(string str1, string str2, int inputcount)
         {
-            intersection.push_back(it->first);
-            it++;i++;
+            //from = new char[str1.length()+1];
+            strcpy(from,str1.c_str());
+            //to = new char[str2.length()+1];
+            strcpy(to,str2.c_str());
+            count=inputcount;
         }
-        else
+     /*   ~Wordtoword()
         {
-            if(cmp<0) it++;
-            else i++;
-        }
-        
-    }
- }*/
- std::vector<string> getallfilenames(boost::filesystem::path p)
-{
-    std::vector<string> filepaths;
-    boost::filesystem::directory_iterator end_ptr;      
-    boost::filesystem::directory_iterator dir(p);   
-    for (;dir != end_ptr; dir++) {
-        p = boost::filesystem::path(*dir);
-        if(is_directory(p))
+            if(from!=nullptr)delete(from);
+            if(to!=nullptr)delete(to);
+        }*/
+    };
+
+     struct WordFrequency
+     {
+        char word[STRING_LENGTH];
+        int count;
+        void setvalues(string &str1, int inputcount)
         {
-            getallfilenames(p);
+            //word = new char[str1.length()+1];
+            strcpy(word,str1.c_str());        
+            count=inputcount;
         }
-        else
+    /*    ~WordFrequency()
         {
-                string dirpath(dir->path().parent_path().string() );
-                string filename(p.stem().string());
-                filepaths.push_back(dir->path().string());
-        }
-    }
-    return filepaths;
-}
-void reduce(Wordtoword* words, int count, std::unordered_map<string,std::unordered_map<string,int>> &reducedmap,int second=0)
- {  
-    //cout<<"Count:"<<count<<" ;";
-    for(int i=0;i<count;i++)
-    {        
-        Wordtoword &word = words[i];
-        string from_str(word.from);
-        string to_str(word.to);
-        //cout<<"("<<from_str<<"-"<<to_str<<")";
-        if(reducedmap.find(from_str)==reducedmap.end())
-        {                              
-            std::unordered_map<string,int> newsubmap;
-            newsubmap[to_str]=word.count;
-            reducedmap[from_str]= newsubmap;            
-        }
-        else
-        {          
-            
-            std::unordered_map<string, int> &submap = reducedmap[from_str];            
-            if(submap.find(to_str)==submap.end())
+            if(word!=nullptr)delete(word);
+        }*/
+     };
+
+
+     std::vector<string> getallfilenames(boost::filesystem::path p)
+    {
+        std::vector<string> filepaths;
+        boost::filesystem::directory_iterator end_ptr;      
+        boost::filesystem::directory_iterator dir(p);   
+        for (;dir != end_ptr; dir++) {
+            p = boost::filesystem::path(*dir);
+            if(is_directory(p))
             {
-                submap[to_str]=word.count;
+                getallfilenames(p);
             }
-            else if(!second)
-            {
-                int presentcount = submap[to_str];
-                submap[to_str]= word.count + presentcount;     
-                    
-            }
-        }
-    }
-    cout<<"\n";
- }
-
- void reducefreq(WordFrequency* wordsfreq, int count, std::unordered_map<string,int> &frequencymap, int secondone=0)
- {    
-    string current_word = "";    
-    for(int i=0;i<count;i++)
-    {
-        WordFrequency wordfreq = wordsfreq[i];
-        string current_word(wordfreq.word);    
-        if(frequencymap.find(current_word)!=frequencymap.end())
-        {
-            if(secondone==0)
-                frequencymap[current_word]+=wordfreq.count;
             else
-                if(frequencymap[current_word]<wordfreq.count)
-                    frequencymap[current_word]=wordfreq.count;
-        }else if(secondone==1)
-        {
-            frequencymap[current_word]=wordfreq.count;
-        }
-    }
- }
- 
-  Wordtoword * get_wordtoword_ifpresent(const std::unordered_map<string,  std::unordered_map<string,int>> &localmap,int &numofwords, const char (*lookup_strings)[STRING_LENGTH], int lookupcount)
- {    
-    numofwords=0;
-    for(int index=0;index<lookupcount;index++)
-    {
-        string str=lookup_strings[index];
-        if(localmap.find(str)!=localmap.end())
-        {            
-            auto it = localmap.find(str);
-            numofwords = numofwords + (it->second).size();   
-        }
-    }
-
-    
-    Wordtoword *wordtoword_ptr= new Wordtoword[numofwords];
-    int index=0;
-    int k=0;
-    
-    for(int index=0;index<lookupcount;index++)
-    {
-        string str=lookup_strings[index];
-        auto it = localmap.find(str);
-        if(it!=localmap.end())
-        {
-            const std::unordered_map<string, int> &submap = it->second;
-            std::unordered_map<string, int>::const_iterator itersubmap = submap.begin();
-            for(;itersubmap!=submap.end();itersubmap++ ,k++)
             {
-                Wordtoword &word= wordtoword_ptr[k];
-                word.setvalues(str,itersubmap->first,itersubmap->second);
-                //strcpy(wordtoword_ptr[k].from,str.c_str());
-                //strcpy(wordtoword_ptr[k].to,(itersubmap->first).c_str());
-                //wordtoword_ptr[k].count=itersubmap->second;
+                    string dirpath(dir->path().parent_path().string() );
+                    string filename(p.stem().string());
+                    filepaths.push_back(dir->path().string());
             }
         }
+        return filepaths;
     }
-    return wordtoword_ptr;
- }
+/*///////////////Static Declarations/////////////*/
 
-
-
-WordFrequency * get_wordfrequency_ifpresent(std::unordered_map<string,int> &frequencymap, int &numofwordfreqstosend, const char (*lookup_strings)[STRING_LENGTH], int lookupcount, int allwords=0)
- {    
-    if(allwords==0){
-    WordFrequency *wordfrequency_ptr= new WordFrequency[lookupcount];
-    int index=0;    
-    numofwordfreqstosend=0;
-    for(index=0;index<lookupcount;index++)
-    {
-        string str(lookup_strings[index]);  
-             
-        if(frequencymap.find(str)!=frequencymap.end())
-        {            
-                strcpy(wordfrequency_ptr[numofwordfreqstosend].word,str.c_str());         
-                wordfrequency_ptr[numofwordfreqstosend].count=frequencymap[str];
-                numofwordfreqstosend++;
-                //cout<<"Came-----------"<<frequencymap.size()<<"\n"; 
-        }        
-    }
-    return wordfrequency_ptr;}
-    else{
-        int fmapsize = frequencymap.size();
-        WordFrequency *wordfrequency_ptr= new WordFrequency[fmapsize];
-        int index=0;    
-        numofwordfreqstosend=fmapsize;
-         for(index=0;index<fmapsize;index++ )//for(auto &pair : frequencymap)
-         {
-            string str("visa");//(*iter).first);
-            strcpy(wordfrequency_ptr[index].word,str.c_str());         
-            wordfrequency_ptr[index].count=3;//(*iter).second;
-            //index++;
-        }        
-        cout<<"saldkfajsflksdjf "<< index<<" s "<< numofwordfreqstosend<<endl;
-        return wordfrequency_ptr;
-     }
-
- }
-
- void removeentries(std::unordered_map<string,std::unordered_map<string,int>> &localmap, char lookup_strings[][STRING_LENGTH], int lookupcount)
- {
-    for(int i=0;i<lookupcount;i++)
-    {
-        string str(lookup_strings[i]);
-        localmap.erase(str);
-    }
- }
-
- /*Wordtoword * get_wordtoword(std::map<string,std::map<string,int>> &localmap,int &numofwords)
- {    
-    std::map<string, std::map<string, int>>::iterator iter = localmap.begin();
-    int count=0;
-    for(;iter!=localmap.end();iter++ )
-    {
-        std::map<string, int> submap = localmap[iter->first];
-        count += submap.size();   
-    }
-    numofwords=count;
-    Wordtoword *wordtoword_ptr= new Wordtoword[count];
-    int index=0;
-    iter = localmap.begin();
-    for(;iter!=localmap.end();iter++ )
-    {
-        std::map<string, int> submap = localmap[iter->first];
-        std::map<string, int>::iterator itersubmap = submap.begin();
-        for(;itersubmap!=submap.end();itersubmap++ ,index++)
-        {
-            Wordtoword newwordtoword;
-            strcpy(newwordtoword.from,(iter->first).c_str());
-            strcpy(newwordtoword.to,(itersubmap->first).c_str());
-            newwordtoword.count=itersubmap->second;
-            wordtoword_ptr[index]=newwordtoword;
-        }
-    }
-    return wordtoword_ptr;
- }*/
- void insert_to_localmap(std::set<string> &stringset, std::unordered_map<string,std::unordered_map<string,int>> &localmap)
- {
-    
-    std::set<string>::iterator it;
-    std::set<string>::iterator iter;
-    int j=0;
-    it=stringset.begin();
-    int myrank = MPI::COMM_WORLD.Get_rank(); 
-    //processes local map that does not have the string entry
-    for(int current_index=0; it!=stringset.end(); it++,current_index++,j=0)
-    {
-        string itstr(*it);
-        if(localmap.find(itstr)==localmap.end())
-        {
-            std::unordered_map<string,int> newmap;
-            for(j=0,iter = stringset.begin();iter != stringset.end();++iter)
-            {
-                string iterstr(*iter);
-                //add all other words in the sentence as cooccuring words except for the current word.
-                //current_index==j refers the word which we are dealing with now.
-                if(current_index==j){j++; continue;}
-
-                newmap[iterstr]=1;
-                j++;
-            }
-            localmap[itstr]=newmap;
-        }
-        //processes local map that has the string entry
-        else
+/*///////////////Reduce Function/////////////////*/    
+    void reduce(Wordtoword* words, int count, std::unordered_map<string,std::unordered_map<string,int>> &reducedmap,int second=0)
+     {  
+        //cout<<"Count:"<<count<<" ;";
+        for(int i=0;i<count;i++)
         {        
-            
-            std::unordered_map<string,int> &stringmap = localmap[*it];
-            for(j=0,iter = stringset.begin();iter != stringset.end();++iter)
-            {
-                string iterstr(*iter);
-                //skip the current word
-                if(current_index==j) {j++;continue;}
-                if(stringmap.find(iterstr)==stringmap.end())
+            Wordtoword &word = words[i];
+            string from_str(word.from);
+            string to_str(word.to);
+            //cout<<"("<<from_str<<"-"<<to_str<<")";
+            if(reducedmap.find(from_str)==reducedmap.end())
+            {                              
+                std::unordered_map<string,int> newsubmap;
+                newsubmap[to_str]=word.count;
+                reducedmap[from_str]= newsubmap;            
+            }
+            else
+            {          
+                
+                std::unordered_map<string, int> &submap = reducedmap[from_str];            
+                if(submap.find(to_str)==submap.end())
                 {
-                    stringmap[iterstr]=1;
+                    submap[to_str]=word.count;
                 }
-                else
+                else if(!second)
                 {
-                    int stringcount = stringmap[iterstr]+1;
-                    stringmap[iterstr] = stringcount;                    
+                    int presentcount = submap[to_str];
+                    submap[to_str]= word.count + presentcount;     
+                        
                 }
-                j++;
             }
         }
-    }
- }
+        cout<<"\n";
+     }
+/*///////////////Reduce Function/////////////////*/    
 
- void process_string(string &str, std::unordered_map<string,std::unordered_map<string,int>> &localmap, std::unordered_map<string, int> &frequencymap)
- {
-        
-        int myrank = MPI::COMM_WORLD.Get_rank(); 
-        int current_index=0, index=0;
-        int length = str.length();
-        
-        std::set<string> uniquewords;
-        int k=0;
-        while(index<length)
+/*///////////////Reduce Frequency Function/////////////////*/         
+     void reducefreq(WordFrequency* wordsfreq, int count, std::unordered_map<string,int> &frequencymap, int secondone=0)
+     {    
+        string current_word = "";    
+        for(int i=0;i<count;i++)
         {
-            index = str.find('\n',index+1);
-            if(current_index+1 == index) continue;
-            if(index==string::npos) break;
-            string line = str.substr(current_index,index - current_index);
-            boost::char_separator<char> sep("\t ");
-            boost::tokenizer<boost::char_separator<char>> tokens(line, sep);
-            int i=0; string two,three;
-            for (const auto& t : tokens) {
-                if(i==2) {two.assign(t); if(isdigit(two.at(0)))break;}
-                if(i==3)
+            WordFrequency wordfreq = wordsfreq[i];
+            string current_word(wordfreq.word);    
+            if(frequencymap.find(current_word)!=frequencymap.end())
+            {
+                if(secondone==0)
+                    frequencymap[current_word]+=wordfreq.count;
+                else
+                    if(frequencymap[current_word]<wordfreq.count)
+                        frequencymap[current_word]=wordfreq.count;
+            }else if(secondone==1)
+            {
+                frequencymap[current_word]=wordfreq.count;
+            }
+        }
+     }
+/*///////////////Reduce Frequency Function/////////////////*/         
+
+/*///////////////GetWordToWord Function/////////////////*/         
+      Wordtoword * get_wordtoword_ifpresent(const std::unordered_map<string,  std::unordered_map<string,int>> &localmap,int &numofwords, const char (*lookup_strings)[STRING_LENGTH], int lookupcount)
+     {    
+        numofwords=0;
+        for(int index=0;index<lookupcount;index++)
+        {
+            string str=lookup_strings[index];
+            if(localmap.find(str)!=localmap.end())
+            {            
+                auto it = localmap.find(str);
+                numofwords = numofwords + (it->second).size();   
+            }
+        }
+
+        
+        Wordtoword *wordtoword_ptr= new Wordtoword[numofwords];
+        int index=0;
+        int k=0;
+        
+        for(int index=0;index<lookupcount;index++)
+        {
+            string str=lookup_strings[index];
+            auto it = localmap.find(str);
+            if(it!=localmap.end())
+            {
+                const std::unordered_map<string, int> &submap = it->second;
+                std::unordered_map<string, int>::const_iterator itersubmap = submap.begin();
+                for(;itersubmap!=submap.end();itersubmap++ ,k++)
                 {
-                    if(t.compare("NN")==0 || t.compare("ADJ")==0)
+                    Wordtoword &word= wordtoword_ptr[k];
+                    word.setvalues(str,itersubmap->first,itersubmap->second);
+                    //strcpy(wordtoword_ptr[k].from,str.c_str());
+                    //strcpy(wordtoword_ptr[k].to,(itersubmap->first).c_str());
+                    //wordtoword_ptr[k].count=itersubmap->second;
+                }
+            }
+        }
+        return wordtoword_ptr;
+     }
+/*///////////////GetWordToWord Function/////////////////*/         
+
+
+/*///////////////GetWordFrequency Function/////////////////*/         
+    WordFrequency * get_wordfrequency_ifpresent(std::unordered_map<string,int> &frequencymap, int &numofwordfreqstosend, const char (*lookup_strings)[STRING_LENGTH], int lookupcount, int allwords=0)
+     {    
+        if(allwords==0){
+        WordFrequency *wordfrequency_ptr= new WordFrequency[lookupcount];
+        int index=0;    
+        numofwordfreqstosend=0;
+        for(index=0;index<lookupcount;index++)
+        {
+            string str(lookup_strings[index]);  
+                 
+            if(frequencymap.find(str)!=frequencymap.end())
+            {            
+                    strcpy(wordfrequency_ptr[numofwordfreqstosend].word,str.c_str());         
+                    wordfrequency_ptr[numofwordfreqstosend].count=frequencymap[str];
+                    numofwordfreqstosend++;
+                    //cout<<"Came-----------"<<frequencymap.size()<<"\n"; 
+            }        
+        }
+        return wordfrequency_ptr;}
+        else{
+            int fmapsize = frequencymap.size();
+            WordFrequency *wordfrequency_ptr= new WordFrequency[fmapsize];
+            int index=0;    
+            numofwordfreqstosend=fmapsize;
+             for(index=0;index<fmapsize;index++ )//for(auto &pair : frequencymap)
+             {
+                string str("visa");//(*iter).first);
+                strcpy(wordfrequency_ptr[index].word,str.c_str());         
+                wordfrequency_ptr[index].count=3;//(*iter).second;
+                //index++;
+            }        
+            cout<<"saldkfajsflksdjf "<< index<<" s "<< numofwordfreqstosend<<endl;
+            return wordfrequency_ptr;
+         }
+
+     }
+/*///////////////GetWordFrequency Function/////////////////*/        
+
+/*///////////////Remove Entries/////////////////*/        
+     void removeentries(std::unordered_map<string,std::unordered_map<string,int>> &localmap, char lookup_strings[][STRING_LENGTH], int lookupcount)
+     {
+        for(int i=0;i<lookupcount;i++)
+        {
+            string str(lookup_strings[i]);
+            localmap.erase(str);
+        }
+     }
+/*///////////////Remove Entries/////////////////*/        
+
+/*///////////////Insert to Local Map Function/////////////////*/         
+     void insert_to_localmap(std::set<string> &stringset, std::unordered_map<string,std::unordered_map<string,int>> &localmap)
+     {
+        
+        std::set<string>::iterator it;
+        std::set<string>::iterator iter;
+        int j=0;
+        it=stringset.begin();
+        int myrank = MPI::COMM_WORLD.Get_rank(); 
+        //processes local map that does not have the string entry
+        for(int current_index=0; it!=stringset.end(); it++,current_index++,j=0)
+        {
+            string itstr(*it);
+            if(localmap.find(itstr)==localmap.end())
+            {
+                std::unordered_map<string,int> newmap;
+                for(j=0,iter = stringset.begin();iter != stringset.end();++iter)
+                {
+                    string iterstr(*iter);
+                    //add all other words in the sentence as cooccuring words except for the current word.
+                    //current_index==j refers the word which we are dealing with now.
+                    if(current_index==j){j++; continue;}
+
+                    newmap[iterstr]=1;
+                    j++;
+                }
+                localmap[itstr]=newmap;
+            }
+            //processes local map that has the string entry
+            else
+            {        
+                
+                std::unordered_map<string,int> &stringmap = localmap[*it];
+                for(j=0,iter = stringset.begin();iter != stringset.end();++iter)
+                {
+                    string iterstr(*iter);
+                    //skip the current word
+                    if(current_index==j) {j++;continue;}
+                    if(stringmap.find(iterstr)==stringmap.end())
                     {
-                        string uniqueword(two+"::"+t);
-                        if(uniqueword.length()>STRING_LENGTH-2)break;
-                        uniquewords.insert(uniqueword);
-                        //cout<<uniqueword<<endl;
-                        if(frequencymap.find(uniqueword)==frequencymap.end())
+                        stringmap[iterstr]=1;
+                    }
+                    else
+                    {
+                        int stringcount = stringmap[iterstr]+1;
+                        stringmap[iterstr] = stringcount;                    
+                    }
+                    j++;
+                }
+            }
+        }
+     }
+/*///////////////Insert to Local Map Function/////////////////*/         
+
+/*///////////////Process String Function/////////////////*/              
+     void process_string(string &str, std::unordered_map<string,std::unordered_map<string,int>> &localmap, std::unordered_map<string, int> &frequencymap)
+     {
+            
+            int myrank = MPI::COMM_WORLD.Get_rank(); 
+            int current_index=0, index=0;
+            int length = str.length();
+            
+            std::set<string> uniquewords;
+            int k=0;
+            while(index<length)
+            {
+                index = str.find('\n',index+1);
+                if(current_index+1 == index) continue;
+                if(index==string::npos) break;
+                string line = str.substr(current_index,index - current_index);
+                boost::char_separator<char> sep("\t ");
+                boost::tokenizer<boost::char_separator<char>> tokens(line, sep);
+                int i=0; string two,three;
+                for (const auto& t : tokens) {
+                    if(i==2) {two.assign(t); if(isdigit(two.at(0)))break;}
+                    if(i==3)
+                    {
+                        if(t.compare("NN")==0 || t.compare("ADJ")==0)
                         {
-                            frequencymap[uniqueword]=1;
-                        }
-                        else
-                        {
-                            int stringcount = frequencymap[uniqueword]+1;
-                            frequencymap[uniqueword] = stringcount;
+                            string uniqueword(two+"::"+t);
+                            if(uniqueword.length()>STRING_LENGTH-2)break;
+                            uniquewords.insert(uniqueword);
+                            //cout<<uniqueword<<endl;
+                            if(frequencymap.find(uniqueword)==frequencymap.end())
+                            {
+                                frequencymap[uniqueword]=1;
+                            }
+                            else
+                            {
+                                int stringcount = frequencymap[uniqueword]+1;
+                                frequencymap[uniqueword] = stringcount;
+                            }
                         }
                     }
+                    i++;
+                    if(i>3) break;
                 }
-                i++;
-                if(i>3) break;
+                if((str[index+1]=='\n' ||index==str.size()-1) && !uniquewords.empty())
+                {   
+                    insert_to_localmap(uniquewords,localmap);  
+                    uniquewords.clear();                              
+                }
+                current_index=index;
             }
-            if((str[index+1]=='\n' ||index==str.size()-1) && !uniquewords.empty())
-            {   
-                insert_to_localmap(uniquewords,localmap);  
-                uniquewords.clear();                              
-            }
-            current_index=index;
-        }
- }
+     }
+/*///////////////Process String Function/////////////////*/              
+/*///////////////GetWordToWord Function/////////////////*/         
+      Wordtoword * get_wordtoword_instant(const map_stringtostringint &localmap, int &numofwords, vector<string> &lookupstrings, int* counts)
+     {    
+        numofwords=0;
 
+        int lookupstringssize = lookupstrings.size();
+        int perprocesscount=0;
+        for(int i=0;i<lookupstringssize/NUM_OF_WORDS;i++)
+        {
+            counts[i]=0;
+            for(int j=0;j<NUM_OF_WORDS;j++)
+            {
+                string str=lookupstrings[i*NUM_OF_WORDS+j];
+                if(localmap.find(str)!=localmap.end())
+                {            
+                    auto it = localmap.find(str);
+                    counts[i] = counts[i] + (it->second).size();   
+                }
+            }
+            numofwords+=counts[i];
+        }
+
+               
+        Wordtoword *wordtoword_ptr= new Wordtoword[numofwords];
+        cout<<numofwords<<endl;
+        int index=0;
+        int k=0;
+        
+        for(int index=0;index<lookupstringssize;index++)
+        {
+            string str=lookupstrings[index];
+            auto it = localmap.find(str);
+            if(it!=localmap.end())
+            {
+                const std::unordered_map<string, int> &submap = it->second;
+                std::unordered_map<string, int>::const_iterator itersubmap = submap.begin();
+                for(;itersubmap!=submap.end();itersubmap++ ,k++)
+                {
+                    Wordtoword &word= wordtoword_ptr[k];
+                    word.setvalues(str,itersubmap->first,itersubmap->second);
+                    //strcpy(wordtoword_ptr[k].from,str.c_str());
+                    //strcpy(wordtoword_ptr[k].to,(itersubmap->first).c_str());
+                    //wordtoword_ptr[k].count=itersubmap->second;
+                }
+            }
+        }
+        return wordtoword_ptr;
+     }
+/*///////////////GetWordToWord Function/////////////////*/         
 
 int main(int argc, char *argv[]) 
 { 
 
     MPI::Init(argc, argv); 
-    int bufsize, *buf;
-    string bufchar1;
-    char filename[128]; 
-
-
 /*//////Datatype for Sending words*/
     MPI_Datatype MPI_Customword;
     MPI_Datatype type0[1] = { MPI_CHAR };
@@ -448,25 +463,29 @@ int main(int argc, char *argv[])
     MPI_Type_commit(&MPI_SingleWordFrequency);
 /*//////Datatype for Sending word frequencies*/
 
+/*//////Declarations//////*/
     MPI::Status status; 
     int myrank = MPI::COMM_WORLD.Get_rank(); 
     int size = MPI::COMM_WORLD.Get_size(); 
-    //cout<<endl<<"Rank :"<<myrank <<"of total:"<<size<<endl;
-    std::vector<string> files;
-    files=getallfilenames("/work/scratch/vv52zasu/inputfiles/");
+    std::vector<string> files=getallfilenames("/home/viswanath/Desktop/thesis/files/inputfiles/");
 
     std::unordered_map<string,int> frequencymap;
     std::unordered_map<string,std::unordered_map<string, int>> localmap;
     std::unordered_map<string,std::unordered_map<string, int>> localsecondlevelmap;
+    int bufsize, *buf;
+    string bufchar1;
+    char filename[128]; 
+/*//////Declarations//////*/    
+
+/*//////Read files in a loop and write initial data to localmap/////*/
+    std::clock_t fileprocessing_timestart = clock();
     for(std::vector<string>::iterator it = files.begin(); it != files.end(); ++it)
     {
         if(myrank ==0)
             std::cout<<"Processing file:"<<(*it).c_str()<<endl;
 
-        MPI::File thefile = MPI::File::Open(MPI::COMM_WORLD, (*it).c_str(),//"/home/viswanath/Desktop/A.conll", 
-                                            MPI::MODE_RDONLY, 
-                                            MPI::INFO_NULL); 
-        MPI::Offset filesize = thefile.Get_size();  // in bytes 
+        MPI::File thefile = MPI::File::Open(MPI::COMM_WORLD, (*it).c_str(), MPI::MODE_RDONLY, MPI::INFO_NULL); 
+        MPI::Offset filesize = thefile.Get_size();
        
         char *bufchar;  
         int CHUNKSIZE = (filesize/size)+1;
@@ -489,19 +508,15 @@ int main(int argc, char *argv[])
         
         int from =0, to=0,index=0;
         string tosend(str);
-        for(int i=0;;i++)
+        while(1)
         {
             index=index+to+1;
             to = tosend.find("\n\n");      
             if(to==string::npos) break;        
             tosend=tosend.substr(to+1);
         }
-        string trimstr=str.substr(0,index-1);
+        string trimstr=str.substr(0,index-1);        
         
-        /*while ((start = str.find("monopoly", start)) != string::npos) {
-            ++occurrences;
-            start += 2; // see the note
-        }*/
         str="";
         MPI::COMM_WORLD.Barrier();
 
@@ -532,16 +547,13 @@ int main(int argc, char *argv[])
         {
             if (i == myrank) {
                 string recvstr;
-                //0th process doesnt receive anything
                 if(myrank !=0)
                 {        
                     recvstr.assign(recvptr,recvptr+status.Get_count(MPI_CHAR)); 
                     finalstr = recvstr+trimstr; 
                 }
-
                 else finalstr=trimstr;
             }
-
             MPI::COMM_WORLD.Barrier();
         }
         
@@ -551,23 +563,104 @@ int main(int argc, char *argv[])
         tosend="";
 
         process_string(finalstr, localmap, frequencymap);
-        /*while ((start = final.find("monopoly", start)) != string::npos) {
-            ++occurrences;
-            start += 2;//string("monopoly").length(); // see the note
-        }*/
+        if(myrank ==0)
+            std::cout<<"Processing file Ended: "<<(*it).c_str()<<endl;
     }
-     //if(localmap.find("monopoly")!=localmap.end() && localmap["monopoly"].find("advocacy") != localmap["monopoly"].end())
-     //        cout<<"at first process:"<<myrank<<" "<<localmap["monopoly"]["advocacy"]<<endl;
+    MPI::COMM_WORLD.Barrier();
+    if(myrank==0) cout<<" Time taken to process the files: "<< (clock()-fileprocessing_timestart)/(double) CLOCKS_PER_SEC<<"\n";
+
+//printing first NUM_OF_WORDS words in each process.
+    auto it=localmap.begin();
+    for(int l=0;l<2;l++)
+    {
+        char *tenwords= new char[NUM_OF_WORDS*STRING_LENGTH];
+        for(int i=0;i<size; i++)
+        {
+            if(myrank==i)
+            {            
+                for(int k=0;k<NUM_OF_WORDS;k++){
+                    if(it!=localmap.end()){
+                        string str((it++)->first);                
+                        size_t length =str.copy(tenwords+k*STRING_LENGTH,STRING_LENGTH-1);
+                        *(tenwords+k*STRING_LENGTH+length)='\0';
+                        cout<<tenwords+k*STRING_LENGTH<<" ";
+                    }
+                    else
+                        *(tenwords+k*STRING_LENGTH)='\0';
+                    }            
+                cout<<"\n";;
+            }
+            MPI::COMM_WORLD.Barrier();
+        }
+        char *tenwordsfromall= new char[NUM_OF_WORDS*STRING_LENGTH*size];
+        MPI_Allgather(tenwords,  NUM_OF_WORDS*STRING_LENGTH,  MPI_CHAR,  tenwordsfromall, NUM_OF_WORDS*STRING_LENGTH, MPI_CHAR,  MPI_COMM_WORLD);
+        vector<string> searchstrings;
+        for(int i=0;i<size;i++)
+        {
+            for(int k=0;k<NUM_OF_WORDS;k++)
+                searchstrings.push_back((myrank^i)?string(tenwordsfromall+i*NUM_OF_WORDS*STRING_LENGTH+k*STRING_LENGTH):"");
+        }
+
+        delete(tenwords);
+        delete(tenwordsfromall);
+
+        int totwords=0;
+        int counts[size];
+        
+        auto me_wordtoword_ptr = get_wordtoword_instant(localmap,totwords,searchstrings,counts);
+        
+        if(myrank==0)for(int i=0;i<size;i++)cout<< counts[i]<<" ";
+
+        int alltoallcounts[size];
+
+        MPI_Alltoall( counts,  1,  MPI_INT,  alltoallcounts,  1,  MPI_INT,  MPI_COMM_WORLD);
+
+        int senddisplacements[size];
+        senddisplacements[0]=0;
+        for(int i=1;i<size;i++)
+        {
+            senddisplacements[i]=senddisplacements[i-1]+counts[i-1];
+        }
+
+        int recvdisplacements[size];
+        recvdisplacements[0]=0;
+        for(int i=1;i<size;i++)
+        {
+            recvdisplacements[i]=recvdisplacements[i-1]+alltoallcounts[i-1];
+        }
+        int recvcount = recvdisplacements[size-1]+alltoallcounts[size-1];
+        auto wordtoword_ptr = new Wordtoword[recvcount];
+        MPI_Alltoallv(me_wordtoword_ptr, counts, senddisplacements, MPI_SingleWordtoWord, wordtoword_ptr, alltoallcounts, recvdisplacements, MPI_SingleWordtoWord, MPI_COMM_WORLD);
+        delete[] me_wordtoword_ptr;
+        //if(myrank==0)for(int i=0;i<size;i++)cout<< alltoallcounts[i]<<" ";
+        // if(myrank==0){
+        //     for(int i=0;i<recvcount;i++)
+        //     {
+        //         cout<<wordtoword_ptr[i].from<<"\n";
+        //     }
+        // }       
+
+        reduce(wordtoword_ptr, recvcount, localmap);  
+
+        delete [] wordtoword_ptr;
+
+/*/////////////////////////////////////////////secondlevel stuff//////////////////////////////////////////////////*/
+        
+
+
+
+    }
+
+/*//////Read files in a loop and write initial data to localmap/////*/    
     
     
+/*//////////broadcasting rootwords and getting the entries in other processes////////*/  /*  
     int localmapsize = localmap.size();
     
     int rootwordssent=0;
     std::unordered_map<string,std::unordered_map<string,int>>::iterator it = localmap.begin();
     
-    //-----------------------------------------------------------------
-    //broadcasting rootwords and getting the entries in other processes
-    //-----------------------------------------------------------------
+    
     for(int i=0;;i++)
     {
         i=i%size;
@@ -682,11 +775,12 @@ int main(int argc, char *argv[])
             break;}
     }
    
-	int locsize = localmap.size();
-	cout<<"Process: "<<myrank<<" Localmap size: "<<locsize<<endl;
-	int totsize=0;
-	MPI_Allreduce(&locsize, &totsize, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
-	if(myrank == 0) cout<<" Total size is: "<<totsize<<endl;
+    int locsize = localmap.size();
+    cout<<"Process: "<<myrank<<" Localmap size: "<<locsize<<endl;
+    int totsize=0;
+    MPI_Allreduce(&locsize, &totsize, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+    if(myrank == 0) cout<<" Total size is: "<<totsize<<endl; */
+/*//////////broadcasting rootwords and getting the entries in other processes////////*/
 /*
     //----------------------------------------------------------------------------------------------------------
     ////broadcasting first level cooccurances and getting entries of second level coccurances from other processes
