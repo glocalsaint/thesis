@@ -117,13 +117,11 @@
 /*///////////////Reduce Function/////////////////*/    
     void reduce(Wordtoword* words, int count, std::unordered_map<string,std::unordered_map<string,int>> &reducedmap,int second=0)
      {  
-        //cout<<"Count:"<<count<<" ;";
         for(int i=0;i<count;i++)
         {        
             Wordtoword &word = words[i];
             string from_str(word.from);
             string to_str(word.to);
-            //cout<<"("<<from_str<<"-"<<to_str<<")";
             if(reducedmap.find(from_str)==reducedmap.end())
             {                              
                 std::unordered_map<string,int> newsubmap;
@@ -132,7 +130,6 @@
             }
             else
             {          
-                
                 std::unordered_map<string, int> &submap = reducedmap[from_str];            
                 if(submap.find(to_str)==submap.end())
                 {
@@ -146,7 +143,6 @@
                 }
             }
         }
-        cout<<"\n";
      }
 /*///////////////Reduce Function/////////////////*/    
 
@@ -371,7 +367,7 @@
             }
      }
 /*///////////////Process String Function/////////////////*/              
-/*///////////////GetWordToWord Function/////////////////*/         
+/*///////////////GetWordToWord Instant Function/////////////////*/         
       Wordtoword * get_wordtoword_instant(const map_stringtostringint &localmap, int &numofwords, vector<string> &lookupstrings, int* counts)
      {    
         numofwords=0;
@@ -392,13 +388,11 @@
             }
             numofwords+=counts[i];
         }
-
                
         Wordtoword *wordtoword_ptr= new Wordtoword[numofwords];
-        cout<<numofwords<<endl;
-        int index=0;
-        int k=0;
         
+        int index=0;
+        int k=0;        
         for(int index=0;index<lookupstringssize;index++)
         {
             string str=lookupstrings[index];
@@ -411,15 +405,57 @@
                 {
                     Wordtoword &word= wordtoword_ptr[k];
                     word.setvalues(str,itersubmap->first,itersubmap->second);
-                    //strcpy(wordtoword_ptr[k].from,str.c_str());
-                    //strcpy(wordtoword_ptr[k].to,(itersubmap->first).c_str());
-                    //wordtoword_ptr[k].count=itersubmap->second;
                 }
             }
         }
         return wordtoword_ptr;
      }
 /*///////////////GetWordToWord Function/////////////////*/         
+
+/*///////////////GetWordToWord Instant second level Function/////////////////*/         
+      Wordtoword * get_wordtoword_secondlevel_instant(const map_stringtostringint &localmap, int &numofwords, vector<string> &lookupstrings, int* counts)
+     {    
+        numofwords=0;
+
+        int lookupstringssize = lookupstrings.size();
+        int perprocesscount=0;
+        for(int i=0;i<lookupstringssize/NUM_OF_WORDS;i++)
+        {
+            counts[i]=0;
+            for(int j=0;j<NUM_OF_WORDS;j++)
+            {
+                string str=lookupstrings[i*NUM_OF_WORDS+j];
+                if(localmap.find(str)!=localmap.end())
+                {            
+                    auto it = localmap.find(str);
+                    counts[i] = counts[i] + (it->second).size();   
+                }
+            }
+            numofwords+=counts[i];
+        }
+               
+        Wordtoword *wordtoword_ptr= new Wordtoword[numofwords];
+        
+        int index=0;
+        int k=0;        
+        for(int index=0;index<lookupstringssize;index++)
+        {
+            string str=lookupstrings[index];
+            auto it = localmap.find(str);
+            if(it!=localmap.end())
+            {
+                const std::unordered_map<string, int> &submap = it->second;
+                std::unordered_map<string, int>::const_iterator itersubmap = submap.begin();
+                for(;itersubmap!=submap.end();itersubmap++ ,k++)
+                {
+                    Wordtoword &word= wordtoword_ptr[k];
+                    word.setvalues(str,itersubmap->first,itersubmap->second);
+                }
+            }
+        }
+        return wordtoword_ptr;
+     }
+/*///////////////GetWordToWord Instant second level Function/////////////////*/         
 
 int main(int argc, char *argv[]) 
 { 
@@ -569,9 +605,12 @@ int main(int argc, char *argv[])
     MPI::COMM_WORLD.Barrier();
     if(myrank==0) cout<<" Time taken to process the files: "<< (clock()-fileprocessing_timestart)/(double) CLOCKS_PER_SEC<<"\n";
 
-//printing first NUM_OF_WORDS words in each process.
+/*//Sending target words and getting firstlevelwords */
     auto it=localmap.begin();
-    for(int l=0;l<2;l++)
+    int maxlocalmapsize=0;
+    int localmapsize = localmap.size();
+    MPI_Allreduce(&localmapsize,    &maxlocalmapsize,    1,    MPI_INT,    MPI_MAX,    MPI_COMM_WORLD);    
+    for(int l=0;l<maxlocalmapsize/10 +1 ;l++)
     {
         char *tenwords= new char[NUM_OF_WORDS*STRING_LENGTH];
         for(int i=0;i<size; i++)
@@ -583,12 +622,11 @@ int main(int argc, char *argv[])
                         string str((it++)->first);                
                         size_t length =str.copy(tenwords+k*STRING_LENGTH,STRING_LENGTH-1);
                         *(tenwords+k*STRING_LENGTH+length)='\0';
-                        cout<<tenwords+k*STRING_LENGTH<<" ";
+                        //cout<<tenwords+k*STRING_LENGTH<<" ";
                     }
                     else
                         *(tenwords+k*STRING_LENGTH)='\0';
                     }            
-                cout<<"\n";;
             }
             MPI::COMM_WORLD.Barrier();
         }
@@ -601,52 +639,92 @@ int main(int argc, char *argv[])
                 searchstrings.push_back((myrank^i)?string(tenwordsfromall+i*NUM_OF_WORDS*STRING_LENGTH+k*STRING_LENGTH):"");
         }
 
-        delete(tenwords);
+        
         delete(tenwordsfromall);
 
         int totwords=0;
         int counts[size];
         
         auto me_wordtoword_ptr = get_wordtoword_instant(localmap,totwords,searchstrings,counts);
-        
-        if(myrank==0)for(int i=0;i<size;i++)cout<< counts[i]<<" ";
 
         int alltoallcounts[size];
-
         MPI_Alltoall( counts,  1,  MPI_INT,  alltoallcounts,  1,  MPI_INT,  MPI_COMM_WORLD);
 
         int senddisplacements[size];
         senddisplacements[0]=0;
         for(int i=1;i<size;i++)
-        {
             senddisplacements[i]=senddisplacements[i-1]+counts[i-1];
-        }
 
         int recvdisplacements[size];
         recvdisplacements[0]=0;
         for(int i=1;i<size;i++)
-        {
             recvdisplacements[i]=recvdisplacements[i-1]+alltoallcounts[i-1];
-        }
+
         int recvcount = recvdisplacements[size-1]+alltoallcounts[size-1];
         auto wordtoword_ptr = new Wordtoword[recvcount];
         MPI_Alltoallv(me_wordtoword_ptr, counts, senddisplacements, MPI_SingleWordtoWord, wordtoword_ptr, alltoallcounts, recvdisplacements, MPI_SingleWordtoWord, MPI_COMM_WORLD);
         delete[] me_wordtoword_ptr;
-        //if(myrank==0)for(int i=0;i<size;i++)cout<< alltoallcounts[i]<<" ";
-        // if(myrank==0){
-        //     for(int i=0;i<recvcount;i++)
-        //     {
-        //         cout<<wordtoword_ptr[i].from<<"\n";
-        //     }
-        // }       
 
         reduce(wordtoword_ptr, recvcount, localmap);  
 
         delete [] wordtoword_ptr;
 
-/*/////////////////////////////////////////////secondlevel stuff//////////////////////////////////////////////////*/
+/*/////////////////////////////////////////////secondlevel stuff//////////////////////////////////////////////////*/ 
         
+        //count how many first level words are there for the 10 target words
+        std::set<string> dup;
+        int firstlevelwordscount=0;
+        for(int i=0;i<10;i++)
+        {
+            string str(tenwords+i*STRING_LENGTH);
+            if(str.compare("")==0)continue;
+            auto &submap = localmap[str];
+            for(auto &entry: submap){
+                string str(entry.first); 
+                dup.insert(str);         
+            }            
+        }
+        firstlevelwordscount=dup.size();
+        //cout<<"Process: "<<myrank<<" "<<firstlevelwordscount<<endl;
 
+        //get all first level words
+        char *firstlevelwords = new char[firstlevelwordscount*STRING_LENGTH];
+        int k=0;
+        
+        for(auto entry: dup)
+        {
+            size_t length =entry.copy(firstlevelwords+k*STRING_LENGTH,STRING_LENGTH-1);
+            *(firstlevelwords+k*STRING_LENGTH+length)='\0';
+            k++;
+        }
+
+        //All_gather number of second level word counts
+        int firstlevelcounts[size];
+        MPI_Allgather(&firstlevelwordscount,  1,  MPI_INT,  firstlevelcounts,  1,  MPI_INT,  MPI_COMM_WORLD);
+
+        int recvdisplacements_firstlevel[size];
+        recvdisplacements_firstlevel[0]=0;
+        for(int i=1;i<size;i++)
+        {
+            recvdisplacements_firstlevel[i]=recvdisplacements_firstlevel[i-1]+firstlevelcounts[i-1];
+        }
+
+        int recvsize = recvdisplacements_firstlevel[size-1]+firstlevelcounts[size-1];
+        char *all_first_level_words = new char[recvsize*STRING_LENGTH];
+
+        MPI_Allgatherv(firstlevelwords, firstlevelwordscount, MPI_Customword, all_first_level_words,  firstlevelcounts, recvdisplacements_firstlevel, MPI_Customword,  MPI_COMM_WORLD);
+
+        vector<string> secondsearchstrings;
+        for(int i=0;i<size;i++)
+        {
+            for(int k=0;k<firstlevelcounts[i];k++)
+                secondsearchstrings.push_back((myrank^i)?string(tenwordsfromall+i*NUM_OF_WORDS*STRING_LENGTH+k*STRING_LENGTH):"");
+        }
+        
+        delete [] all_first_level_words;
+        delete [] firstlevelwords;
+/*/////////////////////////////////////////////secondlevel stuff//////////////////////////////////////////////////*/
+        delete(tenwords);        
 
 
     }
