@@ -502,7 +502,7 @@ int main(int argc, char *argv[])
     MPI::Status status; 
     int myrank = MPI::COMM_WORLD.Get_rank(); 
     int size = MPI::COMM_WORLD.Get_size(); 
-    std::vector<string> files=getallfilenames("/home/viswanath/Desktop/thesis/files/inputfiles/");
+    std::vector<string> files=getallfilenames("/work/scratch/vv52zasu/inputfiles/");
 
     std::unordered_map<string,int> frequencymap;
     std::unordered_map<string,std::unordered_map<string, int>> localmap;
@@ -609,25 +609,32 @@ int main(int argc, char *argv[])
     int maxlocalmapsize=0;
     int localmapsize = localmap.size();
     MPI_Allreduce(&localmapsize,    &maxlocalmapsize,    1,    MPI_INT,    MPI_MAX,    MPI_COMM_WORLD);    
-    for(int l=0;l<maxlocalmapsize/10 +1 ;l++)
+    for(int l=0;l<maxlocalmapsize/NUM_OF_WORDS +1 ;l++)
+    //for(int l=0;l<10 ;l++)
     {
-        char *tenwords= new char[NUM_OF_WORDS*STRING_LENGTH];
-        for(int i=0;i<size; i++)
+        //copying 10 localmap element into another map;
+        map_stringtostringint anothermap;
+        for(int i=0;i<NUM_OF_WORDS;i++)
         {
-            if(myrank==i)
-            {            
-                for(int k=0;k<NUM_OF_WORDS;k++){
-                    if(it!=localmap.end()){
-                        string str((it++)->first);                
-                        size_t length =str.copy(tenwords+k*STRING_LENGTH,STRING_LENGTH-1);
-                        *(tenwords+k*STRING_LENGTH+length)='\0';
-                        //cout<<tenwords+k*STRING_LENGTH<<" ";
-                    }
-                    else
-                        *(tenwords+k*STRING_LENGTH)='\0';
-                    }            
+            if(it!=localmap.end()){
+                auto submap2 = it->second;
+                anothermap[it->first]=submap2;
+                it++;
             }
-            MPI::COMM_WORLD.Barrier();
+        }
+
+        char *tenwords= new char[NUM_OF_WORDS*STRING_LENGTH];
+        int k=0;
+        for(auto &entry: anothermap)
+        {
+            string str(entry.first);                
+            size_t length =str.copy(tenwords+k*STRING_LENGTH,STRING_LENGTH-1);
+            *(tenwords+k*STRING_LENGTH+length)='\0';
+            k++;
+        }       
+        while(k<NUM_OF_WORDS){ 
+            *(tenwords+k*STRING_LENGTH)='\0';
+            k++;
         }
         char *tenwordsfromall= new char[NUM_OF_WORDS*STRING_LENGTH*size];
         MPI_Allgather(tenwords,  NUM_OF_WORDS*STRING_LENGTH,  MPI_CHAR,  tenwordsfromall, NUM_OF_WORDS*STRING_LENGTH, MPI_CHAR,  MPI_COMM_WORLD);
@@ -639,7 +646,7 @@ int main(int argc, char *argv[])
         }
 
         
-        delete(tenwordsfromall);
+        delete[](tenwordsfromall);
 
         int totwords=0;
         int counts[size];
@@ -664,10 +671,21 @@ int main(int argc, char *argv[])
         MPI_Alltoallv(me_wordtoword_ptr, counts, senddisplacements, MPI_SingleWordtoWord, wordtoword_ptr, alltoallcounts, recvdisplacements, MPI_SingleWordtoWord, MPI_COMM_WORLD);
         delete[] me_wordtoword_ptr;
 
-        reduce(wordtoword_ptr, recvcount, localmap);  
+        reduce(wordtoword_ptr, recvcount, anothermap);  
 
+        if(myrank==0)
+        cout<<"Process: "<<myrank <<" FL Recv count:"<<recvcount<<endl;
         delete [] wordtoword_ptr;
-
+    
+// if(myrank==0){
+//         long long c=0;
+//         for(auto &entry: localmap)
+//         {
+//             c+=entry.second.size();
+//         }
+//         c+=localmap.size();
+//     cout<<"Process: "<<myrank <<" localmap size:"<<localmap.size()<<" Elements: "<<c<<endl;
+//     }
 /*/////////////////////////////////////////////secondlevel stuff//////////////////////////////////////////////////*/ 
         
         //count how many first level words are there for the 10 target words
@@ -677,30 +695,31 @@ int main(int argc, char *argv[])
         {
             string str(tenwords+i*STRING_LENGTH);
             if(str.compare("")==0)continue;
-            auto &submap = localmap[str];
+            auto &submap = anothermap[str];
             for(auto &entry: submap){
                 string str(entry.first); 
                 dup.insert(str);         
             }            
         }
         firstlevelwordscount=dup.size();
-        //cout<<"Process: "<<myrank<<" "<<firstlevelwordscount<<endl;
+        if(myrank==0)cout<<"Process: "<<myrank<<" "<<" FL word count: "<<firstlevelwordscount<<endl;
 
         //get all first level words
         char *firstlevelwords = new char[firstlevelwordscount*STRING_LENGTH];
-        int k=0;
         
+        k=0;        
         for(auto entry: dup)
         {
             size_t length =entry.copy(firstlevelwords+k*STRING_LENGTH,STRING_LENGTH-1);
             *(firstlevelwords+k*STRING_LENGTH+length)='\0';
             k++;
         }
+        cout<<"Process: "<<myrank<<" Came 1 ";
 
         //All_gather number of second level word counts
         int firstlevelcounts[size];
         MPI_Allgather(&firstlevelwordscount,  1,  MPI_INT,  firstlevelcounts,  1,  MPI_INT,  MPI_COMM_WORLD);
-
+        cout<<"Process: "<<myrank<<" Came 2 ";
         int recvdisplacements_firstlevel[size];
         recvdisplacements_firstlevel[0]=0;
         for(int i=1;i<size;i++)
@@ -709,11 +728,12 @@ int main(int argc, char *argv[])
         }
 
         int recvsize = recvdisplacements_firstlevel[size-1]+firstlevelcounts[size-1];
+
         char *all_first_level_words = new char[recvsize*STRING_LENGTH];
 
         MPI_Allgatherv(firstlevelwords, firstlevelwordscount, MPI_Customword, all_first_level_words,  firstlevelcounts, recvdisplacements_firstlevel, MPI_Customword,  MPI_COMM_WORLD);
-
-        //
+        cout<<"Process: "<<myrank<<" Came 3 ";
+        
         vector<string> fl_strings;
         for(int i=0;i<recvsize;i++)
         {          
@@ -723,7 +743,7 @@ int main(int argc, char *argv[])
         int sl_wordtoword_counts[size];
         auto sl_wordtoword_ptr = get_wordtoword_secondlevel_instant(localmap, fl_strings, firstlevelcounts, sl_wordtoword_counts, size);
 
-        
+        cout<<"Process: "<<myrank<<" Came 4 ";
         int sl_alltoallcounts[size];
         MPI_Alltoall( sl_wordtoword_counts,  1,  MPI_INT,  sl_alltoallcounts,  1,  MPI_INT,  MPI_COMM_WORLD);
 
@@ -741,19 +761,22 @@ int main(int argc, char *argv[])
             sl_recvdisplacements[i]=sl_recvdisplacements[i-1]+sl_alltoallcounts[i-1];
         }
         recvcount=sl_recvdisplacements[size-1]+sl_alltoallcounts[size-1];
+        cout<<"Process: "<<myrank<<" Came 5 ";
+        auto sl_allwordtoword_ptr = new Wordtoword[recvcount];
+	    if(myrank==0)cout<<"Process: "<<myrank<<" Receivecount of sl:"<<recvcount<<endl; 
+        //MPI_Alltoallv(sl_wordtoword_ptr, sl_wordtoword_counts, sl_senddisplacements, MPI_SingleWordtoWord, sl_allwordtoword_ptr, sl_alltoallcounts, sl_recvdisplacements, MPI_SingleWordtoWord, MPI_COMM_WORLD);
 
-        auto sl_allwordtoword_ptr = new Wordtoword[recvcount]; 
-        MPI_Alltoallv(sl_wordtoword_ptr, sl_wordtoword_counts, sl_senddisplacements, MPI_SingleWordtoWord, sl_allwordtoword_ptr, sl_alltoallcounts, sl_recvdisplacements, MPI_SingleWordtoWord, MPI_COMM_WORLD);
+        if( sl_wordtoword_ptr!=nullptr)delete [] sl_wordtoword_ptr;
+        if(sl_allwordtoword_ptr !=nullptr)delete [] sl_allwordtoword_ptr;
+        if(all_first_level_words !=nullptr)delete [] all_first_level_words;
+        if(firstlevelwords !=nullptr)delete [] firstlevelwords;
+        
 
-        delete [] all_first_level_words;
-        delete [] firstlevelwords;
-        delete [] sl_wordtoword_ptr;
-        delete [] sl_allwordtoword_ptr;
+        delete[](tenwords);
+        }        
 /*/////////////////////////////////////////////secondlevel stuff//////////////////////////////////////////////////*/
-        delete(tenwords);        
 
-
-    }
+    
 
 /*//////Read files in a loop and write initial data to localmap/////*/    
     
