@@ -413,29 +413,28 @@
 /*///////////////GetWordToWord Function/////////////////*/         
 
 /*///////////////GetWordToWord Instant second level Function/////////////////*/         
-      Wordtoword * get_wordtoword_secondlevel_instant(const map_stringtostringint &localmap, int &numofwords, vector<string> &lookupstrings, int* counts)
+     Wordtoword* get_wordtoword_secondlevel_instant(const map_stringtostringint &localmap, vector<string> &lookupstrings, int *firstlevelcounts, int *sl_wordtoword_counts, int size)      
      {    
-        numofwords=0;
-
-        int lookupstringssize = lookupstrings.size();
-        int perprocesscount=0;
-        for(int i=0;i<lookupstringssize/NUM_OF_WORDS;i++)
+        int lookupstringssize = lookupstrings.size();        
+        auto it = lookupstrings.begin();
+        int totalwordssize=0;
+        for(int i=0;i<size;i++)
         {
-            counts[i]=0;
-            for(int j=0;j<NUM_OF_WORDS;j++)
+            sl_wordtoword_counts[i]=0;
+            for(int j=0;j<firstlevelcounts[i];j++)
             {
-                string str=lookupstrings[i*NUM_OF_WORDS+j];
-                if(localmap.find(str)!=localmap.end())
-                {            
-                    auto it = localmap.find(str);
-                    counts[i] = counts[i] + (it->second).size();   
+                auto it1 = localmap.find(*it);
+                if(it1!=localmap.end())
+                {                    
+                    sl_wordtoword_counts[i]+=(it1->second).size();                    
                 }
+                it++;
             }
-            numofwords+=counts[i];
-        }
+            totalwordssize+=sl_wordtoword_counts[i];
+        }   
                
-        Wordtoword *wordtoword_ptr= new Wordtoword[numofwords];
-        
+        Wordtoword *wordtoword_ptr= new Wordtoword[totalwordssize];
+                
         int index=0;
         int k=0;        
         for(int index=0;index<lookupstringssize;index++)
@@ -444,7 +443,7 @@
             auto it = localmap.find(str);
             if(it!=localmap.end())
             {
-                const std::unordered_map<string, int> &submap = it->second;
+                const auto &submap = it->second;
                 std::unordered_map<string, int>::const_iterator itersubmap = submap.begin();
                 for(;itersubmap!=submap.end();itersubmap++ ,k++)
                 {
@@ -714,15 +713,42 @@ int main(int argc, char *argv[])
 
         MPI_Allgatherv(firstlevelwords, firstlevelwordscount, MPI_Customword, all_first_level_words,  firstlevelcounts, recvdisplacements_firstlevel, MPI_Customword,  MPI_COMM_WORLD);
 
-        vector<string> secondsearchstrings;
-        for(int i=0;i<size;i++)
-        {
-            for(int k=0;k<firstlevelcounts[i];k++)
-                secondsearchstrings.push_back((myrank^i)?string(tenwordsfromall+i*NUM_OF_WORDS*STRING_LENGTH+k*STRING_LENGTH):"");
+        //
+        vector<string> fl_strings;
+        for(int i=0;i<recvsize;i++)
+        {          
+            fl_strings.push_back(string(all_first_level_words+i*STRING_LENGTH));
         }
+
+        int sl_wordtoword_counts[size];
+        auto sl_wordtoword_ptr = get_wordtoword_secondlevel_instant(localmap, fl_strings, firstlevelcounts, sl_wordtoword_counts, size);
+
         
+        int sl_alltoallcounts[size];
+        MPI_Alltoall( sl_wordtoword_counts,  1,  MPI_INT,  sl_alltoallcounts,  1,  MPI_INT,  MPI_COMM_WORLD);
+
+        int sl_senddisplacements[size];
+        sl_senddisplacements[0]=0;
+        for(int i=1;i<size;i++)
+        {
+            sl_senddisplacements[i]=sl_senddisplacements[i-1]+sl_wordtoword_counts[i-1];
+        }
+
+        int sl_recvdisplacements[size];
+        sl_recvdisplacements[0]=0;
+        for(int i=1;i<size;i++)
+        {
+            sl_recvdisplacements[i]=sl_recvdisplacements[i-1]+sl_alltoallcounts[i-1];
+        }
+        recvcount=sl_recvdisplacements[size-1]+sl_alltoallcounts[size-1];
+
+        auto sl_allwordtoword_ptr = new Wordtoword[recvcount]; 
+        MPI_Alltoallv(sl_wordtoword_ptr, sl_wordtoword_counts, sl_senddisplacements, MPI_SingleWordtoWord, sl_allwordtoword_ptr, sl_alltoallcounts, sl_recvdisplacements, MPI_SingleWordtoWord, MPI_COMM_WORLD);
+
         delete [] all_first_level_words;
         delete [] firstlevelwords;
+        delete [] sl_wordtoword_ptr;
+        delete [] sl_allwordtoword_ptr;
 /*/////////////////////////////////////////////secondlevel stuff//////////////////////////////////////////////////*/
         delete(tenwords);        
 
